@@ -1,0 +1,62 @@
+﻿<html>
+<head>
+    <title>Messenger Analysis - /*PAGETITLE*/</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body{
+            font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .plot{
+            height:512px;
+        }
+        td{
+            vertical-align:top;
+        }
+        .console {
+            font-family: 'Lucida Console', 'Courier New', 'Courier', 'monospace';
+            font-size: 12px;
+            line-height:14px;
+            color: white;
+            background-color: black;
+            padding: 12px;
+        }
+        .bold {
+            font-weight: bold;
+            color: lawngreen;
+        }
+        .subtle {
+            opacity: 0.5;
+        }
+        .subtleish {
+            opacity: 0.75;
+        }
+    </style>
+</head>
+<body>
+    <h2>MessengerAnalysis - /*PAGETITLE*/</h2>
+    <p>
+        This is the output of a tool designed to analyse Facebook Messenger group chats. More information can be found on <a href="https://github.com/piersdeseilligny/MessengerAnalysis">GitHub</a>.
+        This page additionaly includes various cool plots, which aren't visible in the console. (<a href="#plots">Lower down the page</a>)
+    </p>
+
+    <h3>Output</h3>
+    <p class="console">/*OUTPUT*/</p>
+
+    <h3>Plots</h3>
+    <div id="plots"></div>
+    <script>
+        function makePlotly() {
+            var datespan = [/*DATESPAN*/]
+            var plots = [/*PLOTS*/];
+            for (var plot in plots) {
+                var div = document.createElement('div');
+                div.className = 'plot';
+                div.id = plots[plot].id;
+                document.getElementById('plots').appendChild(div);
+                Plotly.newPlot(plots[plot].id, plots[plot].traces, plots[plot].layout, { responsive: true });
+            }
+        };
+        makePlotly();
+    </script>
+</body>
+</html>

@@ -1,0 +1,665 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Text;
+using static MessengerAnalysis.GroupConvo;
+
+namespace MessengerAnalysis
+{
+    class Program
+    {
+        //heartlaughwowsadangrylikedislike
+        const string EmojiHeart = "\u00f0\u009f\u0098\u008d";
+        const string EmojiLaugh = "\u00f0\u009f\u0098\u0086";
+        const string EmojiWow = "\u00f0\u009f\u0098\u00ae";
+        const string EmojiAngry = "\u00f0\u009f\u0098\u00a0";
+        const string EmojiSad = "\u00f0\u009f\u0098\u00a2";
+        const string EmojiLike = "\u00f0\u009f\u0091\u008d";
+        const string EmojiDislike = "\u00f0\u009f\u0091\u008e";
+
+        public static class Log
+        {
+            public static StringBuilder LogString = new StringBuilder();
+            public static void WriteLine(string text = "")
+            {
+                Console.WriteLine(text);
+                LogString.Append("<span>" + text + "</span><br/>");
+            }
+            public static void WriteBoldLine(string text)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine(text);
+                Console.ResetColor();
+                LogString.Append("<span class='bold'>" + text + "</span><br/>");
+            }
+            public static void WriteSubtleLine(string text)
+            {
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.WriteLine(text);
+                Console.ResetColor();
+                LogString.Append("<span class='subtle'>" + text + "</span><br/>");
+            }
+            public static void WriteSubtleishLine(string text)
+            {
+                Console.ForegroundColor = ConsoleColor.Gray;
+                Console.WriteLine(text);
+                Console.ResetColor();
+                LogString.Append("<span class='subtleish'>" + text + "</span><br/>");
+            }
+            public static string ReadLine()
+            {
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                var input = Console.ReadLine();
+                Console.ResetColor();
+                LogString.Append("<span class='subtle'>" + input + "</span><br/>");
+                return input;
+            }
+            public static string GetOutput()
+            {
+                return LogString.ToString();
+            }
+        }
+
+        static void Main(string[] args)
+        {
+            Log.WriteSubtleLine("MessengerAnalysis 1.0.0");
+            Log.WriteSubtleLine("(c) 2018 Piers Deseilligny");
+            if (args == null || args.Length == 0)
+            {
+                Log.WriteLine("Please specify an input file");
+                Process(Log.ReadLine());
+            }
+            else
+            {
+                Process(args[0]);
+            }
+        }
+        static HashSet<string> Participants = new HashSet<string>();
+        static Dictionary<string, Dictionary<string, AnalysisResults.UserStats>> alldates = new Dictionary<string, Dictionary<string, AnalysisResults.UserStats>>();
+        static Dictionary<string, int> AppreciationMeter = new Dictionary<string, int>();
+        static Dictionary<DayOfWeek, Dictionary<int, int>> ActiveTimes = new Dictionary<DayOfWeek, Dictionary<int, int>>()
+        {
+            {DayOfWeek.Monday, new Dictionary<int, int>() },
+            {DayOfWeek.Tuesday, new Dictionary<int, int>() },
+            {DayOfWeek.Wednesday, new Dictionary<int, int>() },
+            {DayOfWeek.Thursday, new Dictionary<int, int>() },
+            {DayOfWeek.Friday, new Dictionary<int, int>() },
+            {DayOfWeek.Saturday, new Dictionary<int, int>() },
+            {DayOfWeek.Sunday, new Dictionary<int, int>() }
+        };
+
+        public static void Process(string path)
+        {
+            Log.WriteLine();
+            Log.WriteLine("Opening file...");
+            string rawjson;
+            try
+            {
+                rawjson = File.ReadAllText(path.Trim('"'));
+            }
+            catch (Exception ex)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("Couldn't open file (" + ex.Message + ")!");
+                Console.ResetColor();
+                Console.WriteLine("Press any key to exit...");
+                Console.ReadKey();
+                return;
+            }
+
+            Root root = Newtonsoft.Json.JsonConvert.DeserializeObject<Root>(rawjson);
+
+            Dictionary<string, int> users = new Dictionary<string, int>();
+            Stopwatch sw = new Stopwatch();
+            sw.Start();
+            int messagecount = 0;
+
+            //Get date span
+            var start = DateTimeOffset.FromUnixTimeMilliseconds(root.messages[root.messages.Count - 1].timestamp_ms);
+            var end = DateTimeOffset.FromUnixTimeMilliseconds(root.messages[0].timestamp_ms).DateTime;
+
+            if (start > end)
+            {
+                //This should never happen, but if it does, swap the values
+                DateTime tempswap = end;
+                start = end;
+                end = tempswap;
+            }
+
+            //Add all dates between the start and end in the alldates dictionary and in the alldates string
+            for (var i = start; i.Date < end.Date; i = i.AddDays(1))
+            {
+                var str = i.Date.ToString("s");
+                if (!alldates.ContainsKey(str))
+                    alldates.Add(i.Date.ToString("s"), new Dictionary<string, AnalysisResults.UserStats>());
+            }
+
+            //Add all 5-minute zones to each day to the ActiveTimes structure
+            foreach (var day in ActiveTimes)
+            {
+                for (var i = 0; i < 288; i += 1)
+                {
+                    day.Value.Add(i * 5, 0);
+                }
+            }
+
+            Log.WriteLine("Processing " + root.messages.Count + " messages sent in '" + root.title + "' over a period of " + alldates.Count + " days");
+            Log.WriteLine("Last message sent on " + end.ToShortDateString() + " at " + end.ToShortTimeString());
+
+            Dictionary<string, int> KickedOutCounter = new Dictionary<string, int>();
+            int ticker = 0;
+            int ProgressCounter = 0;
+            Message PreviousMessage = null;
+            root.messages.Reverse();//The messages should be processed from oldest to newest
+            var sanitizedMessages = new List<Message>();
+            //Sanitize the message list, by combining anything sent by the same person less than 10 seconds apart.
+            foreach (var message in root.messages)
+            {
+
+                if (!Participants.Contains(message.sender_name))
+                {
+                    AppreciationMeter.Add(message.sender_name, 0);
+                    Participants.Add(message.sender_name);
+                }
+
+                if (PreviousMessage != null && PreviousMessage.sender_name == message.sender_name && (message.timestamp_ms - PreviousMessage.timestamp_ms) < 5000 && message.type == "Generic" && PreviousMessage.type == "Generic")
+                {
+                    //If the previous message was sent less than 5 seconds ago and by the same person who sent the current one, combine them
+                    if (PreviousMessage.content == null)
+                        PreviousMessage.content = message.content;
+                    else
+                        PreviousMessage.content += "\n" + message.content;
+                    if (message.gifs != null)
+                    {
+                        if (PreviousMessage.gifs == null)
+                            PreviousMessage.gifs = message.gifs;
+                        else
+                            PreviousMessage.gifs.AddRange(message.gifs);
+                    }
+                    if (message.photos != null)
+                    {
+                        if (PreviousMessage.photos == null)
+                            PreviousMessage.photos = message.photos;
+                        else
+                            PreviousMessage.photos.AddRange(message.photos);
+                    }
+                    if (message.reactions != null)
+                    {
+                        if (PreviousMessage.reactions == null)
+                            PreviousMessage.reactions = message.reactions;
+                        else
+                            PreviousMessage.reactions.AddRange(message.reactions);
+                    }
+                    sanitizedMessages.RemoveAt(sanitizedMessages.Count - 1);
+                    sanitizedMessages.Add(PreviousMessage);
+                }
+                else
+                {
+                    sanitizedMessages.Add(message);
+                }
+                PreviousMessage = message;
+            }
+            PreviousMessage = null;
+            Log.WriteLine("Sanitized message count:" + sanitizedMessages.Count);
+            Log.WriteLine();
+            foreach (var key in alldates.Keys)
+            {
+                foreach (var participant in Participants)
+                {
+                    alldates[key].Add(participant, new AnalysisResults.UserStats());
+                }
+            }
+            foreach (var message in sanitizedMessages)
+            {
+                ticker++;
+                if (ticker == 10)
+                {
+                    Console.Write("\r" + (100 * ProgressCounter) / sanitizedMessages.Count + "% Analysed");
+                    ticker = 0;
+                }
+                var messageDateRaw = DateTimeOffset.FromUnixTimeMilliseconds(message.timestamp_ms).DateTime;
+                var messageDate = DateTimeOffset.FromUnixTimeMilliseconds(message.timestamp_ms).DateTime.Date.ToString("s");
+                if (!alldates.ContainsKey(messageDate))
+                    alldates.Add(messageDate, new Dictionary<string, AnalysisResults.UserStats>());
+
+                foreach (var participant in Participants)
+                    if (!alldates[messageDate].ContainsKey(participant))
+                        alldates[messageDate].Add(participant, new AnalysisResults.UserStats());
+
+                //Messages sent
+                var senderstats = alldates[messageDate][message.sender_name];
+                senderstats.MessagesSent++;
+                senderstats.AppreciationMeter -= 0.015; //This is to make the appreciation meter somewhat proportional to the amount someone talks
+
+                //Active times stuff
+                var closestLower = Convert.ToInt32(Math.Floor(messageDateRaw.TimeOfDay.TotalMinutes / 5) * 5);
+                ActiveTimes[messageDateRaw.DayOfWeek][closestLower]++;
+
+                //Kicked out counter
+                if (message.type == "Unsubscribe" && message.users != null)
+                {
+                    foreach (var user in message.users)
+                    {
+                        if (user.name != message.sender_name)
+                        {
+                            if (!KickedOutCounter.ContainsKey(user.name))
+                                KickedOutCounter.Add(user.name, 1);
+                            else
+                                KickedOutCounter[user.name]++;
+                            alldates[messageDate][user.name].AppreciationMeter -= 5;
+                        }
+                    }
+                }
+
+                if (message.content != null)
+                {
+                    var sanitized = Helper.Sanitize(message.content);
+                    //Total character count (used to get average later on)
+                    senderstats.TotalCharacterCount += message.content.Length;
+
+                    //Messages sent in all caps
+                    if (sanitized.IsAllCaps())
+                        senderstats.AllCapsSent++;
+
+                    //Swearing
+                    int swearcount = Profanity.Counter(message.content);
+                    senderstats.SwearingSent += swearcount;
+                    if (swearcount > 0) senderstats.SwearingSentMono += 1;
+                }
+
+                //Gifs sent
+                if (message.gifs != null)
+                    senderstats.GifsSent += message.gifs.Count;
+
+                //Images sent
+                if (message.photos != null)
+                    senderstats.ImagesSent += message.photos.Count;
+
+                //Links sent
+                if (message.share != null)
+                    senderstats.LinksSent++;
+
+                //Responses
+                if (PreviousMessage != null && PreviousMessage.sender_name != message.sender_name && (message.timestamp_ms - PreviousMessage.timestamp_ms) < 120000)
+                {
+                    //If the previous message was sent less than 2 minutes ago and not by the same person who sent the current one
+                    if (senderstats.RespondedTo.ContainsKey(PreviousMessage.sender_name))
+                        senderstats.RespondedTo[PreviousMessage.sender_name]++;
+                    else
+                        senderstats.RespondedTo.Add(PreviousMessage.sender_name, 1);
+                }
+
+                //Reactions
+                if (message.reactions != null)
+                {
+                    foreach (var reaction in message.reactions)
+                    {
+                        if (!alldates[messageDate].ContainsKey(reaction.actor))
+                            alldates[messageDate].Add(reaction.actor, new AnalysisResults.UserStats());
+                        var actorstats = alldates[messageDate][reaction.actor];
+                        switch (reaction.reaction)
+                        {
+                            case EmojiHeart:
+                                senderstats.ReceivedHeart++;
+                                actorstats.GaveHeart++;
+                                senderstats.AppreciationMeter++;
+                                break;
+                            case EmojiLaugh:
+                                senderstats.ReceivedLaugh++;
+                                actorstats.GaveLaugh++;
+                                senderstats.AppreciationMeter++;
+                                break;
+                            case EmojiSad:
+                                senderstats.ReceivedSad++;
+                                actorstats.GaveSad++;
+                                break;
+                            case EmojiWow:
+                                senderstats.ReceivedWow++;
+                                actorstats.GaveWow++;
+                                break;
+                            case EmojiLike:
+                                senderstats.ReceivedLike++;
+                                actorstats.GaveLike++;
+                                senderstats.AppreciationMeter--;
+                                break;
+                            case EmojiDislike:
+                                senderstats.ReceivedDislike++;
+                                actorstats.GaveDislike++;
+                                senderstats.AppreciationMeter--;
+                                break;
+                            case EmojiAngry:
+                                senderstats.ReceivedAngry++;
+                                actorstats.GaveAngry++;
+                                senderstats.AppreciationMeter--;
+                                break;
+                        }
+                        alldates[messageDate][reaction.actor] = actorstats;
+                    }
+                }
+
+                alldates[messageDate][message.sender_name] = senderstats;
+                ProgressCounter++;
+                PreviousMessage = message;
+            }
+            Console.WriteLine("\r100% Analysed");
+            Log.WriteLine("Analysed in " +sw.ElapsedMilliseconds+"ms");
+            Log.WriteLine();
+
+            //Stats per user, regardless of date
+            Dictionary<string, AnalysisResults.UserStats> GlobalStats = new Dictionary<string, AnalysisResults.UserStats>();
+
+            //Stats for everyone combined
+            AnalysisResults.UserStats UniversalStats = new AnalysisResults.UserStats();
+
+            
+            Dictionary<string, string> HtmlReplacements = new Dictionary<string, string>();
+            Dictionary<string, int> AverageMessageLengths = new Dictionary<string, int>();
+
+            foreach (var day in alldates)
+            {
+                foreach (var user in day.Value)
+                {
+                    if (!GlobalStats.ContainsKey(user.Key))
+                        GlobalStats.Add(user.Key, new AnalysisResults.UserStats());
+                    GlobalStats[user.Key].Add(user.Value);
+                    GlobalStats[user.Key].Username = user.Key;
+                }
+            }
+
+            
+            foreach (var user in GlobalStats)
+            {
+                if (user.Value.MessagesSent == 0)
+                    AverageMessageLengths.Add(user.Key, 0);
+                else
+                    AverageMessageLengths.Add(user.Key, user.Value.TotalCharacterCount / user.Value.MessagesSent);
+                UniversalStats.Add(user.Value);
+            }
+
+            
+
+            Log.WriteBoldLine("MESSAGES SENT:");
+            Helper.WriteStats(GlobalStats, UniversalStats, "MessagesSent");
+
+            Log.WriteBoldLine("GIFS SENT:");
+            Helper.WriteStats(GlobalStats, UniversalStats, "GifsSent");
+            Helper.WriteStatsProportional(GlobalStats, UniversalStats, "GifsSent");
+
+            Log.WriteBoldLine("IMAGES SENT:");
+            Helper.WriteStats(GlobalStats, UniversalStats, "ImagesSent");
+            Helper.WriteStatsProportional(GlobalStats, UniversalStats, "ImagesSent");
+
+            Log.WriteBoldLine("LINKS SENT:");
+            Helper.WriteStats(GlobalStats, UniversalStats, "LinksSent");
+            Helper.WriteStatsProportional(GlobalStats, UniversalStats, "LinksSent");
+
+            Log.WriteBoldLine("MESSAGES SENT ENTIRELY IN ALL CAPS:");
+            Helper.WriteStats(GlobalStats, UniversalStats, "AllCapsSent");
+            Helper.WriteStatsProportional(GlobalStats, UniversalStats, "AllCapsSent");
+
+            Log.WriteBoldLine("SWEARING:");
+            Helper.WriteStats(GlobalStats, UniversalStats, "SwearingSent");
+            Helper.WriteStatsProportional(GlobalStats, UniversalStats, "SwearingSentMono");
+
+
+
+            Log.WriteBoldLine("HEART REACTIONS GIVEN:");
+            Helper.WriteStats(GlobalStats, UniversalStats, "GaveHeart");
+
+            Log.WriteBoldLine("LAUGHING REACTIONS GIVEN:");
+            Helper.WriteStats(GlobalStats, UniversalStats, "GaveLaugh");
+
+            Log.WriteBoldLine("WOW REACTIONS GIVEN:");
+            Helper.WriteStats(GlobalStats, UniversalStats, "GaveWow");
+
+            Log.WriteBoldLine("ANGRY REACTIONS GIVEN:");
+            Helper.WriteStats(GlobalStats, UniversalStats, "GaveAngry");
+
+            Log.WriteBoldLine("LIKE REACTIONS GIVEN:");
+            Helper.WriteStats(GlobalStats, UniversalStats, "GaveLike");
+
+            Log.WriteBoldLine("DISLIKE REACTIONS GIVEN:");
+            Helper.WriteStats(GlobalStats, UniversalStats, "GaveDislike");
+
+            Log.WriteBoldLine("SAD REACTIONS GIVEN:");
+            Helper.WriteStats(GlobalStats, UniversalStats, "GaveSad");
+
+
+            Log.WriteBoldLine("HEART REACTIONS RECEIVED:");
+            Helper.WriteStats(GlobalStats, UniversalStats, "ReceivedHeart");
+            Helper.WriteStatsProportional(GlobalStats, UniversalStats, "ReceivedHeart");
+
+            Log.WriteBoldLine("LAUGHING REACTIONS RECEIVED:");
+            Helper.WriteStats(GlobalStats, UniversalStats, "ReceivedLaugh");
+            Helper.WriteStatsProportional(GlobalStats, UniversalStats, "ReceivedLaugh");
+
+            Log.WriteBoldLine("WOW REACTIONS RECEIVED:");
+            Helper.WriteStats(GlobalStats, UniversalStats, "ReceivedWow");
+            Helper.WriteStatsProportional(GlobalStats, UniversalStats, "ReceivedWow");
+
+            Log.WriteBoldLine("ANGRY REACTIONS RECEIVED:");
+            Helper.WriteStats(GlobalStats, UniversalStats, "ReceivedAngry");
+            Helper.WriteStatsProportional(GlobalStats, UniversalStats, "ReceivedAngry");
+
+            Log.WriteBoldLine("LIKE REACTIONS RECEIVED:");
+            Helper.WriteStats(GlobalStats, UniversalStats, "ReceivedLike");
+            Helper.WriteStatsProportional(GlobalStats, UniversalStats, "ReceivedLike");
+
+            Log.WriteBoldLine("DISLIKE REACTIONS RECEIVED:");
+            Helper.WriteStats(GlobalStats, UniversalStats, "ReceivedDislike");
+            Helper.WriteStatsProportional(GlobalStats, UniversalStats, "ReceivedDislike");
+
+            Log.WriteBoldLine("SAD REACTIONS RECEIVED:");
+            Helper.WriteStats(GlobalStats, UniversalStats, "ReceivedSad");
+            Helper.WriteStatsProportional(GlobalStats, UniversalStats, "ReceivedSad");
+
+            Log.WriteBoldLine("AVERAGE MESSAGE LENGTH:");
+            foreach (var user in AverageMessageLengths.OrderBy(x => x.Value))
+                Log.WriteLine(user.Key + ": " + user.Value);
+
+            //USER-SPECIFIC STATS
+            Log.WriteLine();
+            foreach (var user in GlobalStats)
+            {
+                Log.WriteLine();
+                Log.WriteBoldLine(user.Key.ToUpper());
+                Log.WriteLine("Most given reaction:");
+                Log.WriteSubtleishLine(user.Value.MostGivenReaction());
+                Log.WriteLine("Most received reaction:");
+                Log.WriteSubtleishLine(user.Value.MostReceivedReaction());
+                Log.WriteLine("Talks with:");
+                user.Value.WriteTalksWith(ref GlobalStats);
+            }
+
+            //APPRECIATION
+            Log.WriteBoldLine("APPRECIATION METER:");
+            Helper.WriteStats(GlobalStats, UniversalStats, "AppreciationMeter");
+
+            //IGNORED
+            Log.WriteBoldLine("MOST IGNORED:");
+            Dictionary<string, int> ResponseCounter = new Dictionary<string, int>();
+            foreach (var stat in GlobalStats)
+            {
+                foreach (var user in stat.Value.RespondedTo)
+                {
+                    if (ResponseCounter.ContainsKey(user.Key))
+                        ResponseCounter[user.Key] += user.Value;
+                    else
+                        ResponseCounter.Add(user.Key, user.Value);
+                }
+            }
+            Dictionary<string, double> IgnoredMessages = new Dictionary<string, double>();
+            foreach (var user in ResponseCounter)
+                IgnoredMessages.Add(user.Key, Math.Round(100 - (100 * (double)user.Value) / (GlobalStats[user.Key].MessagesSent), 2));
+            foreach(var person in IgnoredMessages.OrderBy(x => x.Value).Select(x => x.Key + " (" + x.Value + "% of messages sent)"))
+                Log.WriteSubtleishLine(person);
+
+            //KICKED OUT
+            Log.WriteLine();
+            Log.WriteBoldLine("MOST KICKED OUT:");
+            foreach (var person in KickedOutCounter.OrderBy(x => x.Value).Select(x => x.Key + " (" + x.Value + " times)"))
+                Log.WriteSubtleishLine(person);
+
+
+
+            //CSV FILES + PLOTS
+            Log.WriteLine();
+            Log.WriteLine();
+            Log.WriteLine("Creating csv and html files...");
+            string plots = "";
+            plots += CreateCsvAndJavascript("messages.csv", "MessagesSent", "Messages sent");
+            plots += "," + CreateActiveTimesPlot(ActiveTimes);
+            plots += "," + CreateCsvAndJavascript("appreciation.csv", "AppreciationMeter", "Appreciation");
+            plots += "," + CreateCsvAndJavascript("love.csv", "ReceivedHeart", "Received heart emojis");
+            plots += "," + CreateCsvAndJavascript("hate.csv", "ReceivedAngry", "Received angry emojis");
+            plots += "," + CreateCsvAndJavascript("funny.csv", "ReceivedLaugh", "Received laugh emojis");
+            plots += "," + CreateCsvAndJavascript("like.csv", "ReceivedLike", "Received like emojis");
+            plots += "," + CreateCsvAndJavascript("dislike.csv", "ReceivedDislike", "Received dislike emojis");
+            plots += "," + CreateCsvAndJavascript("sad.csv", "ReceivedSad", "Received sad emojis");
+            
+            
+
+
+
+            //HTML
+            HtmlReplacements.Add("/*PLOTS*/", plots);
+            HtmlReplacements.Add("/*PAGETITLE*/", root.title);
+            HtmlReplacements.Add("/*DATESPAN*/", string.Join(',', alldates.Select(x => "\"" + x.Key + "\"")));
+            string html = Helper.ReadFile("Template.html");
+            foreach (var replacement in HtmlReplacements)
+                html = html.Replace(replacement.Key, replacement.Value);
+
+            Log.WriteLine("\nDone in " + sw.ElapsedMilliseconds + "ms");
+
+            html = html.Replace("/*OUTPUT*/", Log.GetOutput());
+            Helper.SaveFile("output.html", html);
+
+            sw.Stop();
+            
+            Log.WriteLine("Press Y to open another file, any other key to exit...");
+
+            if (Console.ReadKey().Key == ConsoleKey.Y)
+            {
+                Main(null);
+            }
+        }
+
+        public static string CreateActiveTimesPlot(Dictionary<DayOfWeek, Dictionary<int, int>> activeTimes)
+        {
+            string z = "[";
+            Dictionary<int, int> AverageTimes = new Dictionary<int, int>();
+            foreach (var dayofweek in activeTimes)
+            {
+                z += "[";
+                foreach (var time in dayofweek.Value)
+                {
+                    z += time.Value;
+                    if (!AverageTimes.ContainsKey(time.Key))
+                        AverageTimes.Add(time.Key, 0);
+                    AverageTimes[time.Key] += time.Value;
+                    if (time.Key != 1435)
+                        z += ",";
+                }
+                z += "],";
+            }
+            z += "[" + string.Join(',', AverageTimes.Select(x => x.Value / 7)) + "]";
+            z += "]";
+            return @"{
+                traces:[{
+                    z: " + z + @",
+                    y: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday', 'Average'],
+                    x: ['00:00','00:05','00:10','00:15','00:20','00:25','00:30','00:35','00:40','00:45','00:50','00:55','01:00','01:05','01:10','01:15','01:20','01:25','01:30','01:35','01:40','01:45','01:50','01:55','02:00','02:05','02:10','02:15','02:20','02:25','02:30','02:35','02:40','02:45','02:50','02:55','03:00','03:05','03:10','03:15','03:20','03:25','03:30','03:35','03:40','03:45','03:50','03:55','04:00','04:05','04:10','04:15','04:20','04:25','04:30','04:35','04:40','04:45','04:50','04:55','05:00','05:05','05:10','05:15','05:20','05:25','05:30','05:35','05:40','05:45','05:50','05:55','06:00','06:05','06:10','06:15','06:20','06:25','06:30','06:35','06:40','06:45','06:50','06:55','07:00','07:05','07:10','07:15','07:20','07:25','07:30','07:35','07:40','07:45','07:50','07:55','08:00','08:05','08:10','08:15','08:20','08:25','08:30','08:35','08:40','08:45','08:50','08:55','09:00','09:05','09:10','09:15','09:20','09:25','09:30','09:35','09:40','09:45','09:50','09:55','10:00','10:05','10:10','10:15','10:20','10:25','10:30','10:35','10:40','10:45','10:50','10:55','11:00','11:05','11:10','11:15','11:20','11:25','11:30','11:35','11:40','11:45','11:50','11:55','12:00','12:05','12:10','12:15','12:20','12:25','12:30','12:35','12:40','12:45','12:50','12:55','13:00','13:05','13:10','13:15','13:20','13:25','13:30','13:35','13:40','13:45','13:50','13:55','14:00','14:05','14:10','14:15','14:20','14:25','14:30','14:35','14:40','14:45','14:50','14:55','15:00','15:05','15:10','15:15','15:20','15:25','15:30','15:35','15:40','15:45','15:50','15:55','16:00','16:05','16:10','16:15','16:20','16:25','16:30','16:35','16:40','16:45','16:50','16:55','17:00','17:05','17:10','17:15','17:20','17:25','17:30','17:35','17:40','17:45','17:50','17:55','18:00','18:05','18:10','18:15','18:20','18:25','18:30','18:35','18:40','18:45','18:50','18:55','19:00','19:05','19:10','19:15','19:20','19:25','19:30','19:35','19:40','19:45','19:50','19:55','20:00','20:05','20:10','20:15','20:20','20:25','20:30','20:35','20:40','20:45','20:50','20:55','21:00','21:05','21:10','21:15','21:20','21:25','21:30','21:35','21:40','21:45','21:50','21:55','22:00','22:05','22:10','22:15','22:20','22:25','22:30','22:35','22:40','22:45','22:50','22:55','23:00','23:05','23:10','23:15','23:20','23:25','23:30','23:35','23:40','23:45','23:50','23:55'],
+                    type: 'heatmap'
+                }],
+                id:'ActiveTimes',
+                layout: {
+                    title:'Active Times'
+                }
+            }";
+        }
+
+        /// <summary>
+        /// Creates a csv file and returns an array of filled trace templates
+        /// </summary>
+        /// <param name="filename"></param>
+        /// <param name="property"></param>
+        /// <returns></returns>
+        public static string CreateCsvAndJavascript(string filename, string property, string title)
+        {
+            string csvFile = "date," + string.Join(',', Participants.OrderBy(x => x));
+            List<string> javascriptTraces = new List<string>();
+            string traceTemplate = @"{
+  x: datespan,
+  y: [%YDATA%],
+  mode: 'line',
+  line: {shape: 'spline'},
+  name: '%NAME%',
+  connectgaps:true
+}";
+            var datelist = alldates.ToList();
+            Dictionary<string, double> MessageCounter = new Dictionary<string, double>();
+            Dictionary<string, List<string>> TraceValues = new Dictionary<string, List<string>>();
+            foreach (var participant in Participants)
+            {
+                MessageCounter.Add(participant, 0);
+                TraceValues.Add(participant, new List<string>());
+            }
+            for (int i = 0; i < alldates.Count; i++)
+            {
+                csvFile += "\n" + datelist[i].Key + ",";
+                var ordered = datelist[i].Value.OrderBy(x => x.Key).ToList();
+                for (int j = 0; j < ordered.Count; j++)
+                {
+                    var value = Convert.ToDouble(typeof(AnalysisResults.UserStats).GetProperty(property).GetValue(ordered[j].Value));
+                    if (MessageCounter.ContainsKey(ordered[j].Key))
+                    {
+                        bool IsUndefined = false;
+                        MessageCounter[ordered[j].Key] += value;
+
+                        csvFile += MessageCounter[ordered[j].Key];
+                        if (value == 0)
+                            TraceValues[ordered[j].Key].Add("undefined");
+                        else
+                            TraceValues[ordered[j].Key].Add(MessageCounter[ordered[j].Key].ToString());
+                        if (j != ordered.Count - 1)
+                            csvFile += ",";
+                    }
+
+                }
+            }
+            List<string> traces = new List<string>();
+            foreach (var person in TraceValues)
+            {
+                traces.Add(traceTemplate.Replace("%NAME%", person.Key.Replace("'", "\\'")).Replace("%YDATA%", string.Join(',', person.Value)));
+            }
+            SaveFile(filename, csvFile);
+
+            string plot = @"{
+                traces:[/*TRACES*/],
+                id:/*ID*/,
+                layout: {
+                    title: '/*TITLE*/',
+                    xaxis: {
+                        autorange: true,
+                        type: 'date'
+                    },
+                    yaxis: {
+                        autorange: true,
+                        type: 'linear'
+                    }
+                }
+            }".Replace("/*TITLE*/", title)
+            .Replace("/*TRACES*/", string.Join(',', traces))
+            .Replace("/*ID*/", "\"" + property + "\"");
+            return plot;
+        }
+
+
+        static void SaveFile(string path, string data)
+        {
+            System.IO.File.WriteAllText(path, data);
+        }
+    }
+}
