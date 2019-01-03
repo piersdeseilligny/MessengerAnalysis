@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using static MessengerAnalysis.Program;
 
 namespace MessengerAnalysis
@@ -86,18 +85,18 @@ namespace MessengerAnalysis
             /// Ba = times B has responded to A
             /// Bt = total message count sent by B
             /// </summary>
-            /// <param name="GlobalStats"></param>
-            public void WriteTalksWith(ref Dictionary<string,UserStats> GlobalStats)
+            /// <param name="globalStats"></param>
+            public void WriteTalksWith(ref Dictionary<string,UserStats> globalStats)
             {
-                Dictionary<string, double> TalksWith = new Dictionary<string, double>();
+                Dictionary<string, double> talksWith = new Dictionary<string, double>();
                 foreach(var user in RespondedTo)
                 {
                     double otherside = 0;
-                    if (GlobalStats[user.Key].RespondedTo.ContainsKey(Username))
-                        otherside = (double)GlobalStats[user.Key].RespondedTo[Username]/(double)MessagesSent;
-                    TalksWith.Add(user.Key, Math.Round((((double)user.Value/GlobalStats[user.Key].MessagesSent)+(otherside))*100, 2));
+                    if (globalStats[user.Key].RespondedTo.ContainsKey(Username))
+                        otherside = globalStats[user.Key].RespondedTo[Username]/(double)MessagesSent;
+                    talksWith.Add(user.Key, Math.Round((((double)user.Value/globalStats[user.Key].MessagesSent)+(otherside))*100, 2));
                 }
-                foreach (var person in TalksWith.OrderBy(x => x.Value).Select(x => x.Key + " (" + x.Value + ")"))
+                foreach (var person in talksWith.OrderBy(x => x.Value).Select(x => x.Key + " (" + x.Value + ")"))
                     Log.WriteSubtleLine(person);
             }
 

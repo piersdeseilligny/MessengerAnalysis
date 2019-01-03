@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Text;
 using System.Linq;
 using static MessengerAnalysis.AnalysisResults;
 using System.Text.RegularExpressions;
@@ -18,7 +17,7 @@ namespace MessengerAnalysis
         /// <param name="data">A string to write to the file</param>
         public static void SaveFile(string filename, string data)
         {
-            System.IO.File.WriteAllText(AppDomain.CurrentDomain.BaseDirectory + Path.DirectorySeparatorChar +filename, data);
+            File.WriteAllText(AppDomain.CurrentDomain.BaseDirectory + Path.DirectorySeparatorChar +filename, data);
         }
         /// <summary>
         /// Read a file from the location of the executable
@@ -27,7 +26,7 @@ namespace MessengerAnalysis
         /// <returns></returns>
         public static string ReadFile(string filename)
         {
-            return System.IO.File.ReadAllText(AppDomain.CurrentDomain.BaseDirectory + Path.DirectorySeparatorChar + filename);
+            return File.ReadAllText(AppDomain.CurrentDomain.BaseDirectory + Path.DirectorySeparatorChar + filename);
         }
         /// <summary>
         /// Check if the input is written entirely in all caps
@@ -43,23 +42,13 @@ namespace MessengerAnalysis
         }
         public static string Sanitize(string input)
         {
-            return Regex.Replace(input, @"(@[A-Za-z0-9]+)|([^0-9A-Za-z \t])|(\w+:\/\/\S+)", " ").ToString();
+            return Regex.Replace(input, @"(@[A-Za-z0-9]+)|([^0-9A-Za-z \t])|(\w+:\/\/\S+)", " ");
         }
 
-        public static string PercentOf(this int input, int total)
-        {
-            if (total == 0) return "0%";
-            return Math.Round((input * 100f / total),1)+"%";
-        }
         public static string PercentOfDouble(this double input, double total)
         {
             if (total == 0) return "0%";
             return Math.Round((input * 100f / total), 1) + "%";
-        }
-        public static float TryDivide(this int input, int divider)
-        {
-            if (divider == 0) return 0;
-            else return ((float)input / (float)divider);
         }
         public static double TryDivide(this double input, double divider)
         {
@@ -74,9 +63,8 @@ namespace MessengerAnalysis
         /// <param name="universalstats">The universal stats variable</param>
         /// <param name="property">The name of the property from UserStats</param>
         /// <returns></returns>
-        public static string WriteStats(Dictionary<string, AnalysisResults.UserStats> stats, AnalysisResults.UserStats universalstats, string property)
+        public static void WriteStats(Dictionary<string, UserStats> stats, UserStats universalstats, string property)
         {
-            List<string> dom = new List<string>();
             foreach(var user in stats.OrderByDescending(x => Convert.ToDouble(typeof(UserStats).GetProperty(property).GetValue(x.Value))))
             {
                 double value = Convert.ToDouble(typeof(UserStats).GetProperty(property).GetValue(user.Value));
@@ -88,7 +76,6 @@ namespace MessengerAnalysis
                 }
             }
             Log.WriteLine();
-            return string.Join('\n', dom);
         }
         /// <summary>
         /// Write down the stats for the required property, relative to the amount of messages a user has sent
@@ -97,9 +84,8 @@ namespace MessengerAnalysis
         /// <param name="universalstats">The universal stats variable</param>
         /// <param name="property">The name of the property from UserStats</param>
         /// <returns></returns>
-        public static string WriteStatsProportional(Dictionary<string, AnalysisResults.UserStats> stats, AnalysisResults.UserStats universalstats, string property)
+        public static void WriteStatsProportional(Dictionary<string, UserStats> stats, UserStats universalstats, string property)
         {
-            List<string> dom = new List<string>();
             foreach (var user in stats.OrderByDescending(x => (Convert.ToDouble(typeof(UserStats).GetProperty(property).GetValue(x.Value))).TryDivide(x.Value.MessagesSent)))
             {
                 double value = (Convert.ToDouble(typeof(UserStats).GetProperty(property).GetValue(user.Value)).TryDivide(user.Value.MessagesSent));
@@ -111,7 +97,6 @@ namespace MessengerAnalysis
                 
             }
             Log.WriteLine();
-            return string.Join('\n', dom);
         }
 
         public static void MostSomethingHelper(ref int mostcount, ref string moststring, int verify, string name)

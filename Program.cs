@@ -65,7 +65,7 @@ namespace MessengerAnalysis
         static void Main(string[] args)
         {
             Log.WriteSubtleLine("MessengerAnalysis 1.0.0");
-            Log.WriteSubtleLine("(c) 2018 Piers Deseilligny");
+            Log.WriteSubtleLine("Copyright (c) 2019 Piers Deseilligny");
             if (args == null || args.Length == 0)
             {
                 Log.WriteLine("Please specify an input file");
@@ -77,9 +77,18 @@ namespace MessengerAnalysis
             }
         }
         static HashSet<string> Participants = new HashSet<string>();
-        static Dictionary<string, Dictionary<string, AnalysisResults.UserStats>> alldates = new Dictionary<string, Dictionary<string, AnalysisResults.UserStats>>();
-        static Dictionary<string, int> AppreciationMeter = new Dictionary<string, int>();
-        static Dictionary<DayOfWeek, Dictionary<int, int>> ActiveTimes = new Dictionary<DayOfWeek, Dictionary<int, int>>()
+        public static Dictionary<string, Dictionary<string, AnalysisResults.UserStats>> AllDates = new Dictionary<string, Dictionary<string, AnalysisResults.UserStats>>();
+        public static Dictionary<string, int> AppreciationMeter = new Dictionary<string, int>();
+        //Stats per user, regardless of date
+        public static Dictionary<string, AnalysisResults.UserStats> GlobalStats = new Dictionary<string, AnalysisResults.UserStats>();
+        //Stats for everyone combined
+        public static AnalysisResults.UserStats UniversalStats = new AnalysisResults.UserStats();
+
+
+        public static Dictionary<string, string> HtmlReplacements = new Dictionary<string, string>();
+        public static Dictionary<string, int> AverageMessageLengths = new Dictionary<string, int>();
+
+        public static Dictionary<DayOfWeek, Dictionary<int, int>> ActiveTimes = new Dictionary<DayOfWeek, Dictionary<int, int>>()
         {
             {DayOfWeek.Monday, new Dictionary<int, int>() },
             {DayOfWeek.Tuesday, new Dictionary<int, int>() },
@@ -111,10 +120,8 @@ namespace MessengerAnalysis
 
             Root root = Newtonsoft.Json.JsonConvert.DeserializeObject<Root>(rawjson);
 
-            Dictionary<string, int> users = new Dictionary<string, int>();
             Stopwatch sw = new Stopwatch();
             sw.Start();
-            int messagecount = 0;
 
             //Get date span
             var start = DateTimeOffset.FromUnixTimeMilliseconds(root.messages[root.messages.Count - 1].timestamp_ms);
@@ -128,12 +135,12 @@ namespace MessengerAnalysis
                 end = tempswap;
             }
 
-            //Add all dates between the start and end in the alldates dictionary and in the alldates string
+            //Add all dates between the start and end in the AllDates dictionary and in the AllDates string
             for (var i = start; i.Date < end.Date; i = i.AddDays(1))
             {
                 var str = i.Date.ToString("s");
-                if (!alldates.ContainsKey(str))
-                    alldates.Add(i.Date.ToString("s"), new Dictionary<string, AnalysisResults.UserStats>());
+                if (!AllDates.ContainsKey(str))
+                    AllDates.Add(i.Date.ToString("s"), new Dictionary<string, AnalysisResults.UserStats>());
             }
 
             //Add all 5-minute zones to each day to the ActiveTimes structure
@@ -145,13 +152,13 @@ namespace MessengerAnalysis
                 }
             }
 
-            Log.WriteLine("Processing " + root.messages.Count + " messages sent in '" + root.title + "' over a period of " + alldates.Count + " days");
+            Log.WriteLine("Processing " + root.messages.Count + " messages sent in '" + root.title + "' over a period of " + AllDates.Count + " days");
             Log.WriteLine("Last message sent on " + end.ToShortDateString() + " at " + end.ToShortTimeString());
 
             Dictionary<string, int> KickedOutCounter = new Dictionary<string, int>();
             int ticker = 0;
-            int ProgressCounter = 0;
-            Message PreviousMessage = null;
+            int progressCounter = 0;
+            Message previousMessage = null;
             root.messages.Reverse();//The messages should be processed from oldest to newest
             var sanitizedMessages = new List<Message>();
             //Sanitize the message list, by combining anything sent by the same person less than 10 seconds apart.
@@ -164,51 +171,51 @@ namespace MessengerAnalysis
                     Participants.Add(message.sender_name);
                 }
 
-                if (PreviousMessage != null && PreviousMessage.sender_name == message.sender_name && (message.timestamp_ms - PreviousMessage.timestamp_ms) < 5000 && message.type == "Generic" && PreviousMessage.type == "Generic")
+                if (previousMessage != null && previousMessage.sender_name == message.sender_name && (message.timestamp_ms - previousMessage.timestamp_ms) < 5000 && message.type == "Generic" && previousMessage.type == "Generic")
                 {
                     //If the previous message was sent less than 5 seconds ago and by the same person who sent the current one, combine them
-                    if (PreviousMessage.content == null)
-                        PreviousMessage.content = message.content;
+                    if (previousMessage.content == null)
+                        previousMessage.content = message.content;
                     else
-                        PreviousMessage.content += "\n" + message.content;
+                        previousMessage.content += "\n" + message.content;
                     if (message.gifs != null)
                     {
-                        if (PreviousMessage.gifs == null)
-                            PreviousMessage.gifs = message.gifs;
+                        if (previousMessage.gifs == null)
+                            previousMessage.gifs = message.gifs;
                         else
-                            PreviousMessage.gifs.AddRange(message.gifs);
+                            previousMessage.gifs.AddRange(message.gifs);
                     }
                     if (message.photos != null)
                     {
-                        if (PreviousMessage.photos == null)
-                            PreviousMessage.photos = message.photos;
+                        if (previousMessage.photos == null)
+                            previousMessage.photos = message.photos;
                         else
-                            PreviousMessage.photos.AddRange(message.photos);
+                            previousMessage.photos.AddRange(message.photos);
                     }
                     if (message.reactions != null)
                     {
-                        if (PreviousMessage.reactions == null)
-                            PreviousMessage.reactions = message.reactions;
+                        if (previousMessage.reactions == null)
+                            previousMessage.reactions = message.reactions;
                         else
-                            PreviousMessage.reactions.AddRange(message.reactions);
+                            previousMessage.reactions.AddRange(message.reactions);
                     }
                     sanitizedMessages.RemoveAt(sanitizedMessages.Count - 1);
-                    sanitizedMessages.Add(PreviousMessage);
+                    sanitizedMessages.Add(previousMessage);
                 }
                 else
                 {
                     sanitizedMessages.Add(message);
                 }
-                PreviousMessage = message;
+                previousMessage = message;
             }
-            PreviousMessage = null;
+            previousMessage = null;
             Log.WriteLine("Sanitized message count:" + sanitizedMessages.Count);
             Log.WriteLine();
-            foreach (var key in alldates.Keys)
+            foreach (var key in AllDates.Keys)
             {
                 foreach (var participant in Participants)
                 {
-                    alldates[key].Add(participant, new AnalysisResults.UserStats());
+                    AllDates[key].Add(participant, new AnalysisResults.UserStats());
                 }
             }
             foreach (var message in sanitizedMessages)
@@ -216,20 +223,20 @@ namespace MessengerAnalysis
                 ticker++;
                 if (ticker == 10)
                 {
-                    Console.Write("\r" + (100 * ProgressCounter) / sanitizedMessages.Count + "% Analysed");
+                    Console.Write("\r" + (100 * progressCounter) / sanitizedMessages.Count + "% Analysed");
                     ticker = 0;
                 }
                 var messageDateRaw = DateTimeOffset.FromUnixTimeMilliseconds(message.timestamp_ms).DateTime;
                 var messageDate = DateTimeOffset.FromUnixTimeMilliseconds(message.timestamp_ms).DateTime.Date.ToString("s");
-                if (!alldates.ContainsKey(messageDate))
-                    alldates.Add(messageDate, new Dictionary<string, AnalysisResults.UserStats>());
+                if (!AllDates.ContainsKey(messageDate))
+                    AllDates.Add(messageDate, new Dictionary<string, AnalysisResults.UserStats>());
 
                 foreach (var participant in Participants)
-                    if (!alldates[messageDate].ContainsKey(participant))
-                        alldates[messageDate].Add(participant, new AnalysisResults.UserStats());
+                    if (!AllDates[messageDate].ContainsKey(participant))
+                        AllDates[messageDate].Add(participant, new AnalysisResults.UserStats());
 
                 //Messages sent
-                var senderstats = alldates[messageDate][message.sender_name];
+                var senderstats = AllDates[messageDate][message.sender_name];
                 senderstats.MessagesSent++;
                 senderstats.AppreciationMeter -= 0.015; //This is to make the appreciation meter somewhat proportional to the amount someone talks
 
@@ -248,7 +255,7 @@ namespace MessengerAnalysis
                                 KickedOutCounter.Add(user.name, 1);
                             else
                                 KickedOutCounter[user.name]++;
-                            alldates[messageDate][user.name].AppreciationMeter -= 5;
+                            AllDates[messageDate][user.name].AppreciationMeter -= 5;
                         }
                     }
                 }
@@ -282,13 +289,13 @@ namespace MessengerAnalysis
                     senderstats.LinksSent++;
 
                 //Responses
-                if (PreviousMessage != null && PreviousMessage.sender_name != message.sender_name && (message.timestamp_ms - PreviousMessage.timestamp_ms) < 120000)
+                if (previousMessage != null && previousMessage.sender_name != message.sender_name && (message.timestamp_ms - previousMessage.timestamp_ms) < 120000)
                 {
                     //If the previous message was sent less than 2 minutes ago and not by the same person who sent the current one
-                    if (senderstats.RespondedTo.ContainsKey(PreviousMessage.sender_name))
-                        senderstats.RespondedTo[PreviousMessage.sender_name]++;
+                    if (senderstats.RespondedTo.ContainsKey(previousMessage.sender_name))
+                        senderstats.RespondedTo[previousMessage.sender_name]++;
                     else
-                        senderstats.RespondedTo.Add(PreviousMessage.sender_name, 1);
+                        senderstats.RespondedTo.Add(previousMessage.sender_name, 1);
                 }
 
                 //Reactions
@@ -296,9 +303,9 @@ namespace MessengerAnalysis
                 {
                     foreach (var reaction in message.reactions)
                     {
-                        if (!alldates[messageDate].ContainsKey(reaction.actor))
-                            alldates[messageDate].Add(reaction.actor, new AnalysisResults.UserStats());
-                        var actorstats = alldates[messageDate][reaction.actor];
+                        if (!AllDates[messageDate].ContainsKey(reaction.actor))
+                            AllDates[messageDate].Add(reaction.actor, new AnalysisResults.UserStats());
+                        var actorstats = AllDates[messageDate][reaction.actor];
                         switch (reaction.reaction)
                         {
                             case EmojiHeart:
@@ -335,29 +342,19 @@ namespace MessengerAnalysis
                                 senderstats.AppreciationMeter--;
                                 break;
                         }
-                        alldates[messageDate][reaction.actor] = actorstats;
+                        AllDates[messageDate][reaction.actor] = actorstats;
                     }
                 }
 
-                alldates[messageDate][message.sender_name] = senderstats;
-                ProgressCounter++;
-                PreviousMessage = message;
+                AllDates[messageDate][message.sender_name] = senderstats;
+                progressCounter++;
+                previousMessage = message;
             }
             Console.WriteLine("\r100% Analysed");
             Log.WriteLine("Analysed in " +sw.ElapsedMilliseconds+"ms");
             Log.WriteLine();
 
-            //Stats per user, regardless of date
-            Dictionary<string, AnalysisResults.UserStats> GlobalStats = new Dictionary<string, AnalysisResults.UserStats>();
-
-            //Stats for everyone combined
-            AnalysisResults.UserStats UniversalStats = new AnalysisResults.UserStats();
-
-            
-            Dictionary<string, string> HtmlReplacements = new Dictionary<string, string>();
-            Dictionary<string, int> AverageMessageLengths = new Dictionary<string, int>();
-
-            foreach (var day in alldates)
+            foreach (var day in AllDates)
             {
                 foreach (var user in day.Value)
                 {
@@ -526,7 +523,7 @@ namespace MessengerAnalysis
             //HTML
             HtmlReplacements.Add("/*PLOTS*/", plots);
             HtmlReplacements.Add("/*PAGETITLE*/", root.title);
-            HtmlReplacements.Add("/*DATESPAN*/", string.Join(',', alldates.Select(x => "\"" + x.Key + "\"")));
+            HtmlReplacements.Add("/*DATESPAN*/", string.Join(',', AllDates.Select(x => "\"" + x.Key + "\"")));
             string html = Helper.ReadFile("Template.html");
             foreach (var replacement in HtmlReplacements)
                 html = html.Replace(replacement.Key, replacement.Value);
@@ -585,11 +582,11 @@ namespace MessengerAnalysis
         /// </summary>
         /// <param name="filename"></param>
         /// <param name="property"></param>
+        /// <param name="title"></param>
         /// <returns></returns>
         public static string CreateCsvAndJavascript(string filename, string property, string title)
         {
             string csvFile = "date," + string.Join(',', Participants.OrderBy(x => x));
-            List<string> javascriptTraces = new List<string>();
             string traceTemplate = @"{
   x: datespan,
   y: [%YDATA%],
@@ -598,31 +595,30 @@ namespace MessengerAnalysis
   name: '%NAME%',
   connectgaps:true
 }";
-            var datelist = alldates.ToList();
-            Dictionary<string, double> MessageCounter = new Dictionary<string, double>();
-            Dictionary<string, List<string>> TraceValues = new Dictionary<string, List<string>>();
+            var datelist = AllDates.ToList();
+            Dictionary<string, double> messageCounter = new Dictionary<string, double>();
+            Dictionary<string, List<string>> traceValues = new Dictionary<string, List<string>>();
             foreach (var participant in Participants)
             {
-                MessageCounter.Add(participant, 0);
-                TraceValues.Add(participant, new List<string>());
+                messageCounter.Add(participant, 0);
+                traceValues.Add(participant, new List<string>());
             }
-            for (int i = 0; i < alldates.Count; i++)
+            for (int i = 0; i < AllDates.Count; i++)
             {
                 csvFile += "\n" + datelist[i].Key + ",";
                 var ordered = datelist[i].Value.OrderBy(x => x.Key).ToList();
                 for (int j = 0; j < ordered.Count; j++)
                 {
                     var value = Convert.ToDouble(typeof(AnalysisResults.UserStats).GetProperty(property).GetValue(ordered[j].Value));
-                    if (MessageCounter.ContainsKey(ordered[j].Key))
+                    if (messageCounter.ContainsKey(ordered[j].Key))
                     {
-                        bool IsUndefined = false;
-                        MessageCounter[ordered[j].Key] += value;
+                        messageCounter[ordered[j].Key] += value;
 
-                        csvFile += MessageCounter[ordered[j].Key];
+                        csvFile += messageCounter[ordered[j].Key];
                         if (value == 0)
-                            TraceValues[ordered[j].Key].Add("undefined");
+                            traceValues[ordered[j].Key].Add("undefined");
                         else
-                            TraceValues[ordered[j].Key].Add(MessageCounter[ordered[j].Key].ToString());
+                            traceValues[ordered[j].Key].Add(messageCounter[ordered[j].Key].ToString());
                         if (j != ordered.Count - 1)
                             csvFile += ",";
                     }
@@ -630,7 +626,7 @@ namespace MessengerAnalysis
                 }
             }
             List<string> traces = new List<string>();
-            foreach (var person in TraceValues)
+            foreach (var person in traceValues)
             {
                 traces.Add(traceTemplate.Replace("%NAME%", person.Key.Replace("'", "\\'")).Replace("%YDATA%", string.Join(',', person.Value)));
             }
@@ -659,7 +655,7 @@ namespace MessengerAnalysis
 
         static void SaveFile(string path, string data)
         {
-            System.IO.File.WriteAllText(path, data);
+            File.WriteAllText(path, data);
         }
     }
 }
