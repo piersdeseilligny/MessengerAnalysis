@@ -43,6 +43,9 @@ Each file has a column for each user in the conversation, and a row for each dat
 * `dislike.csv`: The amount of 👎 reactions received by each user
 * `sad.csv`: The amount of 😥 reactions received by each user
 
+# Building
+
+If you want to run MessengerAnalysis, you will need to have the [.NET Core](https://dotnet.microsoft.com/) runtime installed in order to build it (run `dotnet build -c Release` in the repository). The app's .dll can then be found in `bin/Release/netcoreapp2.1/MessengerAnalysis.dll`. Run it with `dotnet MessengerAnalysis.dll`.
 
 # Usage
 
