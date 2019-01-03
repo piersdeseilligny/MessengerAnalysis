@@ -22,6 +22,7 @@
 * A list of who they talk with the most
 
 **Overall**:
+* The appreciation meter of each user (calculated from the reactions to their messages, how often they have been kicked out, and how many messages they have sent)
 * Who is the most ignored (an ignored message is one without a response two minutes later)
 * Who has been kicked out the most
 
@@ -29,17 +30,19 @@
 
 This tool also generates an `output.html` file in the directory it's run from, which has some really cool plots and the entire console output.
 
-## CSV FILE
+## CSV FILES
 
-* **`output.html`**: A web page containing the entire output of the CLI tool, and some really cool plots
+Each file has a column for each user in the conversation, and a row for each date between those of the first and last messages sent to the conversation
+
 * `messages.csv`: The amount of messages sent by each user
+* `appreciation.csv`: The cummulative appreciation meter of each user
 * `love.csv`: The amount of 😍 reactions received by each user
 * `hate.csv`: The amount of 😠 reactions received by each user
 * `funny.csv`: The amount of 😂 reactions received by each user
 * `like.csv`: The amount of 👍 reactions received by each user
 * `dislike.csv`: The amount of 👎 reactions received by each user
 * `sad.csv`: The amount of 😥 reactions received by each user
-* `appreciation.csv`: The day-by-day appreciation of each user
+
 
 # Usage
 
