@@ -99,6 +99,7 @@ namespace MessengerAnalysis
             {DayOfWeek.Sunday, new Dictionary<int, int>() }
         };
 
+        public static Root root = null;
         public static void Process(string path)
         {
             Log.WriteLine();
@@ -118,7 +119,7 @@ namespace MessengerAnalysis
                 return;
             }
 
-            Root root = Newtonsoft.Json.JsonConvert.DeserializeObject<Root>(rawjson);
+            root = Newtonsoft.Json.JsonConvert.DeserializeObject<Root>(rawjson);
 
             Stopwatch sw = new Stopwatch();
             sw.Start();
@@ -531,16 +532,37 @@ namespace MessengerAnalysis
             Log.WriteLine("\nDone in " + sw.ElapsedMilliseconds + "ms");
 
             html = html.Replace("/*OUTPUT*/", Log.GetOutput());
-            Helper.SaveFile("output.html", html);
+            Helper.SaveFile(root.title, "output.html", html);
 
             sw.Stop();
             
-            Log.WriteLine("Press Y to open another file, any other key to exit...");
+            Log.WriteLine("Press Y to analyse another file, any other key to exit...");
 
             if (Console.ReadKey().Key == ConsoleKey.Y)
             {
+                ResetVariables();
                 Main(null);
             }
+        }
+        public static void ResetVariables()
+        {
+            Participants = new HashSet<string>();
+            AllDates = new Dictionary<string, Dictionary<string, AnalysisResults.UserStats>>();
+            AppreciationMeter = new Dictionary<string, int>();
+            GlobalStats = new Dictionary<string, AnalysisResults.UserStats>();
+            UniversalStats = new AnalysisResults.UserStats();
+            HtmlReplacements = new Dictionary<string, string>();
+            AverageMessageLengths = new Dictionary<string, int>();
+            ActiveTimes = new Dictionary<DayOfWeek, Dictionary<int, int>>()
+            {
+                {DayOfWeek.Monday, new Dictionary<int, int>() },
+                {DayOfWeek.Tuesday, new Dictionary<int, int>() },
+                {DayOfWeek.Wednesday, new Dictionary<int, int>() },
+                {DayOfWeek.Thursday, new Dictionary<int, int>() },
+                {DayOfWeek.Friday, new Dictionary<int, int>() },
+                {DayOfWeek.Saturday, new Dictionary<int, int>() },
+                {DayOfWeek.Sunday, new Dictionary<int, int>() }
+            };
         }
 
         public static string CreateActiveTimesPlot(Dictionary<DayOfWeek, Dictionary<int, int>> activeTimes)
@@ -630,7 +652,7 @@ namespace MessengerAnalysis
             {
                 traces.Add(traceTemplate.Replace("%NAME%", person.Key.Replace("'", "\\'")).Replace("%YDATA%", string.Join(',', person.Value)));
             }
-            SaveFile(filename, csvFile);
+            Helper.SaveFile(root.title, filename, csvFile);
 
             string plot = @"{
                 traces:[/*TRACES*/],
@@ -650,12 +672,6 @@ namespace MessengerAnalysis
             .Replace("/*TRACES*/", string.Join(',', traces))
             .Replace("/*ID*/", "\"" + property + "\"");
             return plot;
-        }
-
-
-        static void SaveFile(string path, string data)
-        {
-            File.WriteAllText(path, data);
         }
     }
 }

@@ -11,13 +11,21 @@ namespace MessengerAnalysis
     public static class Helper
     {
         /// <summary>
-        /// Save a file in the location of the executable
+        /// Save a file in a folder in the location of the executable
         /// </summary>
         /// <param name="filename">The filename (including the extension)</param>
         /// <param name="data">A string to write to the file</param>
-        public static void SaveFile(string filename, string data)
+        public static void SaveFile(string foldername, string filename, string data)
         {
-            File.WriteAllText(AppDomain.CurrentDomain.BaseDirectory + Path.DirectorySeparatorChar +filename, data);
+            foldername = SanitizeFolderName(foldername);
+            var dir =Directory.CreateDirectory(AppDomain.CurrentDomain.BaseDirectory + Path.DirectorySeparatorChar + foldername);
+            File.WriteAllText(dir.FullName + Path.DirectorySeparatorChar + filename, data);
+        }
+        public static string SanitizeFolderName(string name)
+        {
+            string regexSearch = new string(Path.GetInvalidFileNameChars()) + new string(Path.GetInvalidPathChars());
+            var r = new Regex(string.Format("[{0}]", Regex.Escape(regexSearch)));
+            return r.Replace(name, "");
         }
         /// <summary>
         /// Read a file from the location of the executable
