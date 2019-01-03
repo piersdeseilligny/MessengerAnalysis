@@ -329,7 +329,7 @@ namespace MessengerAnalysis
                             case EmojiLike:
                                 senderstats.ReceivedLike++;
                                 actorstats.GaveLike++;
-                                senderstats.AppreciationMeter--;
+                                senderstats.AppreciationMeter++;
                                 break;
                             case EmojiDislike:
                                 senderstats.ReceivedDislike++;
