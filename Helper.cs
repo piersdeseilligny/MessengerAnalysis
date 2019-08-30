@@ -43,9 +43,8 @@ namespace MessengerAnalysis
         /// <returns></returns>
         public static bool IsAllCaps(this string input)
         {
-            for (int i = 0; i < input.Length; i++)
-                if (Char.IsLetter(input[i]) && !Char.IsUpper(input[i]))
-                    return false;
+            Regex r = new Regex("^[A-Z ]*$");
+            return !string.IsNullOrEmpty(r.Match(input).Value);
             return true;
         }
         public static string Sanitize(string input)

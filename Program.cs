@@ -126,6 +126,11 @@ namespace MessengerAnalysis
 
             //Get date span
             var start = DateTimeOffset.FromUnixTimeMilliseconds(root.messages[root.messages.Count - 1].timestamp_ms);
+            if (root.thread_type == "Regular" && root.messages[root.messages.Count - 1].content.StartsWith("Say hi to your new Facebook friend,") && root.messages.Count>1)
+            {
+                //Ignore the "Say hi to your new friend" message
+                start = DateTimeOffset.FromUnixTimeMilliseconds(root.messages[root.messages.Count - 2].timestamp_ms);
+            }
             var end = DateTimeOffset.FromUnixTimeMilliseconds(root.messages[0].timestamp_ms).DateTime;
 
             if (start > end)
@@ -163,9 +168,14 @@ namespace MessengerAnalysis
             root.messages.Reverse();//The messages should be processed from oldest to newest
             var sanitizedMessages = new List<Message>();
             //Sanitize the message list, by combining anything sent by the same person less than 10 seconds apart.
+            bool firstmessage = true;
             foreach (var message in root.messages)
             {
-
+                if (firstmessage && !string.IsNullOrEmpty(message.content) && message.content.StartsWith("Say hi to your new Facebook friend,"))
+                {
+                    firstmessage = false;
+                    continue;
+                }
                 if (!Participants.Contains(message.sender_name))
                 {
                     AppreciationMeter.Add(message.sender_name, 0);
@@ -290,13 +300,20 @@ namespace MessengerAnalysis
                     senderstats.LinksSent++;
 
                 //Responses
-                if (previousMessage != null && previousMessage.sender_name != message.sender_name && (message.timestamp_ms - previousMessage.timestamp_ms) < 120000)
+                if (previousMessage != null && previousMessage.sender_name != message.sender_name)
                 {
-                    //If the previous message was sent less than 2 minutes ago and not by the same person who sent the current one
-                    if (senderstats.RespondedTo.ContainsKey(previousMessage.sender_name))
-                        senderstats.RespondedTo[previousMessage.sender_name]++;
+                    if((message.timestamp_ms - previousMessage.timestamp_ms) < 120000){
+                        //If the previous message was sent less than 2 minutes ago and not by the same person who sent the current one
+                        if (senderstats.RespondedTo.ContainsKey(previousMessage.sender_name))
+                            senderstats.RespondedTo[previousMessage.sender_name]++;
+                        else
+                            senderstats.RespondedTo.Add(previousMessage.sender_name, 1);
+                    }
                     else
-                        senderstats.RespondedTo.Add(previousMessage.sender_name, 1);
+                    {
+                        AllDates[messageDate][previousMessage.sender_name].AppreciationMeter -= 0.1;
+                    }
+
                 }
 
                 //Reactions
@@ -568,7 +585,7 @@ namespace MessengerAnalysis
         public static string CreateActiveTimesPlot(Dictionary<DayOfWeek, Dictionary<int, int>> activeTimes)
         {
             string z = "[";
-            Dictionary<int, int> AverageTimes = new Dictionary<int, int>();
+            Dictionary<int, float> AverageTimes = new Dictionary<int, float>();
             foreach (var dayofweek in activeTimes)
             {
                 z += "[";
@@ -583,7 +600,7 @@ namespace MessengerAnalysis
                 }
                 z += "],";
             }
-            z += "[" + string.Join(',', AverageTimes.Select(x => x.Value / 7)) + "]";
+            z += "[" + string.Join(',', AverageTimes.Select(x => (x.Value / 7).ToString().Replace(',','.'))) + "]";
             z += "]";
             return @"{
                 traces:[{
@@ -640,7 +657,7 @@ namespace MessengerAnalysis
                         if (value == 0)
                             traceValues[ordered[j].Key].Add("undefined");
                         else
-                            traceValues[ordered[j].Key].Add(messageCounter[ordered[j].Key].ToString());
+                            traceValues[ordered[j].Key].Add(messageCounter[ordered[j].Key].ToString().Replace(",","."));
                         if (j != ordered.Count - 1)
                             csvFile += ",";
                     }
